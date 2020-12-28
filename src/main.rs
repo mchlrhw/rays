@@ -60,28 +60,83 @@ impl Ray {
     }
 }
 
-fn hit_sphere(center: Point, radius: f64, ray: &Ray) -> f64 {
-    let oc = ray.origin - center;
+struct HitRecord {
+    p: Point,
+    normal: Vector,
+    t: f64,
+    front_face: bool,
+}
 
-    let a = ray.direction.dot(&ray.direction);
-    let b = 2.0 * oc.dot(&ray.direction);
-    let c = oc.dot(&oc) - (radius * radius);
+trait Hittable {
+    fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord>;
+}
 
-    let discriminant = (b * b) - (4.0 * a * c);
+struct HitList(Vec<Box<dyn Hittable>>);
 
-    if discriminant < 0.0 {
-        -1.0
-    } else {
-        (-b - discriminant.sqrt()) / (2.0 * a)
+impl Hittable for HitList {
+    fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord> {
+        let mut maybe_hit = None;
+        let mut closest_so_far = t_max;
+
+        for hittable in &self.0 {
+            if let Some(hit_rec) = hittable.hit(ray, t_min, closest_so_far) {
+                closest_so_far = hit_rec.t;
+                maybe_hit = Some(hit_rec);
+            }
+        }
+
+        maybe_hit
     }
 }
 
-fn ray_colour(ray: &Ray) -> Rgb {
-    let t = hit_sphere(Point::new(0.0, 0.0, -1.0), 0.5, ray);
-    if t > 0.0 {
-        let n = (ray.at(t) - Vector::new(0.0, 0.0, -1.0)).coords.normalize();
+struct Sphere {
+    center: Point,
+    radius: f64,
+}
 
-        return 0.5 * Rgb::new(n.x + 1.0, n.y + 1.0, n.z + 1.0);
+impl Hittable for Sphere {
+    fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord> {
+        let oc = ray.origin - self.center;
+        let a = ray.direction.magnitude_squared();
+        let half_b = oc.dot(&ray.direction);
+        let c = oc.magnitude_squared() - self.radius.powi(2);
+
+        let discriminant = half_b.powi(2) - (a * c);
+        if discriminant < 0.0 {
+            return None;
+        }
+
+        let sqrtd = discriminant.sqrt();
+        let mut root = (-half_b - sqrtd) / a;
+        if root < t_min || t_max < root {
+            root = (-half_b + sqrtd) / a;
+            if root < t_min || t_max < root {
+                return None;
+            }
+        }
+
+        let t = root;
+        let p = ray.at(t);
+        let outward_normal = (p - self.center) / self.radius;
+        let front_face = ray.direction.dot(&outward_normal) < 0.0;
+        let normal = if front_face {
+            outward_normal
+        } else {
+            -outward_normal
+        };
+
+        Some(HitRecord {
+            t,
+            normal,
+            p,
+            front_face,
+        })
+    }
+}
+
+fn ray_colour(ray: &Ray, world: &dyn Hittable) -> Rgb {
+    if let Some(hit_rec) = world.hit(ray, 0.0, f64::INFINITY) {
+        return 0.5 * Rgb(hit_rec.normal + Vector::new(1.0, 1.0, 1.0));
     }
 
     let t = 0.5 * (ray.direction.normalize().y + 1.0);
@@ -90,6 +145,20 @@ fn ray_colour(ray: &Ray) -> Rgb {
 }
 
 fn main() {
+
+    // World
+
+    let world = HitList(vec![
+        Box::new(Sphere {
+            center: Point::new(0.0, 0.0, -1.0),
+            radius: 0.5,
+        }),
+        Box::new(Sphere {
+            center: Point::new(0.0, -100.5, -1.0),
+            radius: 100.0,
+        }),
+    ]);
+
     // Camera
 
     let origin = Point::new(0.0, 0.0, 0.0);
@@ -113,7 +182,7 @@ fn main() {
                 origin,
                 direction: lower_left_corner + (u * horizontal) + (v * vertical) - origin,
             };
-            let pixel_colour = ray_colour(&ray);
+            let pixel_colour = ray_colour(&ray, &world);
 
             println!("{}", pixel_colour);
         }

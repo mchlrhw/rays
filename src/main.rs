@@ -3,10 +3,12 @@ use std::fmt;
 use indicatif::ProgressBar;
 use na::{Point3, Vector3};
 use nalgebra as na;
+use rand::{thread_rng, Rng};
 
 const ASPECT_RATIO: f64 = 16.0 / 9.0;
 const IMAGE_WIDTH: u64 = 400;
 const IMAGE_HEIGHT: u64 = (IMAGE_WIDTH as f64 / ASPECT_RATIO) as u64;
+const SAMPLES_PER_PIXEL: u64 = 100;
 
 type Point = Point3<f64>;
 type Vector = Vector3<f64>;
@@ -21,9 +23,18 @@ impl Rgb {
 
 impl fmt::Display for Rgb {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let ir = (255.999 * self.0.x) as u64;
-        let ig = (255.999 * self.0.y) as u64;
-        let ib = (255.999 * self.0.z) as u64;
+        let mut r = self.0.x;
+        let mut g = self.0.y;
+        let mut b = self.0.z;
+
+        let scale = 1.0 / SAMPLES_PER_PIXEL as f64;
+        r *= scale;
+        g *= scale;
+        b *= scale;
+
+        let ir = (256.0 * r.clamp(0.0, 0.999)) as u64;
+        let ig = (256.0 * g.clamp(0.0, 0.999)) as u64;
+        let ib = (256.0 * b.clamp(0.0, 0.999)) as u64;
 
         write!(f, "{} {} {}", ir, ig, ib)
     }
@@ -42,6 +53,12 @@ impl std::ops::Add<Rgb> for Rgb {
 
     fn add(self, other: Rgb) -> Self::Output {
         Rgb(self.0 + other.0)
+    }
+}
+
+impl std::ops::AddAssign for Rgb {
+    fn add_assign(&mut self, other: Self) {
+        *self = Self(self.0 + other.0);
     }
 }
 
@@ -180,6 +197,8 @@ impl Camera {
 }
 
 fn main() {
+    let mut rng = thread_rng();
+
     // World
 
     let world = HitList(vec![
@@ -205,12 +224,14 @@ fn main() {
     for j in (0..IMAGE_HEIGHT).rev() {
         progress.inc(1);
         for i in 0..IMAGE_WIDTH {
-            let u = i as f64 / (IMAGE_WIDTH - 1) as f64;
-            let v = j as f64 / (IMAGE_HEIGHT - 1) as f64;
+            let mut pixel_colour = Rgb::new(0.0, 0.0, 0.0);
+            for _s in 0..SAMPLES_PER_PIXEL {
+                let u = (i as f64 + rng.gen_range(0.0..1.0)) / (IMAGE_WIDTH - 1) as f64;
+                let v = (j as f64 + rng.gen_range(0.0..1.0)) / (IMAGE_HEIGHT - 1) as f64;
 
-            let ray = camera.get_ray(u, v);
-            let pixel_colour = ray_colour(&ray, &world);
-
+                let ray = camera.get_ray(u, v);
+                pixel_colour += ray_colour(&ray, &world);
+            }
             println!("{}", pixel_colour);
         }
     }

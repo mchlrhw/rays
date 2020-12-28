@@ -8,10 +8,6 @@ const ASPECT_RATIO: f64 = 16.0 / 9.0;
 const IMAGE_WIDTH: u64 = 400;
 const IMAGE_HEIGHT: u64 = (IMAGE_WIDTH as f64 / ASPECT_RATIO) as u64;
 
-const VIEWPORT_HEIGHT: f64 = 2.0;
-const VIEWPORT_WIDTH: f64 = ASPECT_RATIO * VIEWPORT_HEIGHT;
-const FOCAL_LENGTH: f64 = 1.0;
-
 type Point = Point3<f64>;
 type Vector = Vector3<f64>;
 
@@ -144,8 +140,46 @@ fn ray_colour(ray: &Ray, world: &dyn Hittable) -> Rgb {
     ((1.0 - t) * Rgb::new(1.0, 1.0, 1.0)) + (t * Rgb::new(0.5, 0.7, 1.0))
 }
 
-fn main() {
+struct Camera {
+    origin: Point,
+    lower_left_corner: Point,
+    horizontal: Vector,
+    vertical: Vector,
+}
 
+impl Camera {
+    const ASPECT_RATIO: f64 = 16.0 / 9.0;
+    const VIEWPORT_HEIGHT: f64 = 2.0;
+    const VIEWPORT_WIDTH: f64 = Self::ASPECT_RATIO * Self::VIEWPORT_HEIGHT;
+    const FOCAL_LENGTH: f64 = 1.0;
+
+    fn new() -> Self {
+        let origin = Point::new(0.0, 0.0, 0.0);
+        let horizontal = Vector::new(Self::VIEWPORT_WIDTH, 0.0, 0.0);
+        let vertical = Vector::new(0.0, Self::VIEWPORT_HEIGHT, 0.0);
+        let lower_left_corner = origin
+            - (horizontal / 2.0)
+            - (vertical / 2.0)
+            - Vector::new(0.0, 0.0, Self::FOCAL_LENGTH);
+
+        Self {
+            origin,
+            horizontal,
+            vertical,
+            lower_left_corner,
+        }
+    }
+
+    fn get_ray(&self, u: f64, v: f64) -> Ray {
+        Ray {
+            origin: self.origin,
+            direction: self.lower_left_corner + (u * self.horizontal) + (v * self.vertical)
+                - self.origin,
+        }
+    }
+}
+
+fn main() {
     // World
 
     let world = HitList(vec![
@@ -161,11 +195,7 @@ fn main() {
 
     // Camera
 
-    let origin = Point::new(0.0, 0.0, 0.0);
-    let horizontal = Vector::new(VIEWPORT_WIDTH, 0.0, 0.0);
-    let vertical = Vector::new(0.0, VIEWPORT_HEIGHT, 0.0);
-    let lower_left_corner =
-        origin - (horizontal / 2.0) - (vertical / 2.0) - Vector::new(0.0, 0.0, FOCAL_LENGTH);
+    let camera = Camera::new();
 
     // Render
 
@@ -178,10 +208,7 @@ fn main() {
             let u = i as f64 / (IMAGE_WIDTH - 1) as f64;
             let v = j as f64 / (IMAGE_HEIGHT - 1) as f64;
 
-            let ray = Ray {
-                origin,
-                direction: lower_left_corner + (u * horizontal) + (v * vertical) - origin,
-            };
+            let ray = camera.get_ray(u, v);
             let pixel_colour = ray_colour(&ray, &world);
 
             println!("{}", pixel_colour);

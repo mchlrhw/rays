@@ -10,6 +10,7 @@ const ASPECT_RATIO: f64 = 16.0 / 9.0;
 const IMAGE_WIDTH: u64 = 400;
 const IMAGE_HEIGHT: u64 = (IMAGE_WIDTH as f64 / ASPECT_RATIO) as u64;
 const SAMPLES_PER_PIXEL: u64 = 100;
+const MAX_DEPTH: i64 = 50;
 
 type Point = Point3<f64>;
 type Vector = Vector3<f64>;
@@ -148,9 +149,23 @@ impl Hittable for Sphere {
     }
 }
 
-fn ray_colour(ray: &Ray, world: &dyn Hittable) -> Rgb {
+fn ray_colour(ray: &Ray, world: &dyn Hittable, depth: i64) -> Rgb {
+    if depth < 0 {
+        return Rgb::new(0.0, 0.0, 0.0);
+    }
+
     if let Some(hit_rec) = world.hit(ray, 0.0, f64::INFINITY) {
-        return 0.5 * Rgb(hit_rec.normal + Vector::new(1.0, 1.0, 1.0));
+        let target = hit_rec.p + hit_rec.normal + random_vector_in_unit_sphere();
+        let recursion = ray_colour(
+            &Ray {
+                origin: hit_rec.p,
+                direction: target - hit_rec.p,
+            },
+            world,
+            depth - 1,
+        );
+
+        return 0.5 * recursion;
     }
 
     let t = 0.5 * (ray.direction.normalize().y + 1.0);
@@ -197,6 +212,27 @@ impl Camera {
     }
 }
 
+fn random_vector(min: f64, max: f64) -> Vector {
+    let mut rng = thread_rng();
+
+    Vector::new(
+        rng.gen_range(min..max),
+        rng.gen_range(min..max),
+        rng.gen_range(min..max),
+    )
+}
+
+fn random_vector_in_unit_sphere() -> Vector {
+    loop {
+        let p = random_vector(-1.0, 1.0);
+        if p.magnitude_squared() > 1.0 {
+            continue;
+        }
+
+        return p;
+    }
+}
+
 fn main() {
     // World
 
@@ -233,7 +269,7 @@ fn main() {
 
                     let ray = camera.get_ray(u, v);
 
-                    ray_colour(&ray, &world)
+                    ray_colour(&ray, &world, MAX_DEPTH)
                 })
                 .reduce(|| Rgb::new(0.0, 0.0, 0.0), |pc, rc| pc + rc);
 

@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use indicatif::ProgressBar;
 use na::{Point3, Vector3};
@@ -15,6 +15,7 @@ const MAX_DEPTH: i64 = 50;
 type Point = Point3<f64>;
 type Vector = Vector3<f64>;
 
+#[derive(Clone)]
 struct Rgb(Vector3<f64>);
 
 impl Rgb {
@@ -50,6 +51,14 @@ impl std::ops::Mul<Rgb> for f64 {
     }
 }
 
+impl std::ops::Mul<Rgb> for Rgb {
+    type Output = Rgb;
+
+    fn mul(self, other: Rgb) -> Self::Output {
+        Rgb(self.0.component_mul(&other.0))
+    }
+}
+
 impl std::ops::Add<Rgb> for Rgb {
     type Output = Rgb;
 
@@ -78,8 +87,27 @@ impl Ray {
 struct HitRecord {
     p: Point,
     normal: Vector,
+    material: Arc<dyn Material>,
     t: f64,
     front_face: bool,
+}
+
+trait Material: Sync + Send {
+    fn scatter(&self, ray: &Ray, hit_rec: &HitRecord) -> Option<(Rgb, Ray)>;
+}
+
+struct Lambertian {
+    albedo: Rgb,
+}
+
+impl Material for Lambertian {
+    fn scatter(&self, _ray: &Ray, hit_rec: &HitRecord) -> Option<(Rgb, Ray)> {
+        let direction = hit_rec.normal + random_unit_vector();
+        let scattered = Ray{origin: hit_rec.p, direction};
+        let attenuation = self.albedo.clone();
+
+        Some((attenuation, scattered))
+    }
 }
 
 trait Hittable: Sync {
@@ -107,6 +135,7 @@ impl Hittable for HitList {
 struct Sphere {
     center: Point,
     radius: f64,
+    material: Arc<dyn Material>,
 }
 
 impl Hittable for Sphere {
@@ -143,6 +172,7 @@ impl Hittable for Sphere {
         Some(HitRecord {
             t,
             normal,
+            material: self.material.clone(),
             p,
             front_face,
         })
@@ -155,17 +185,10 @@ fn ray_colour(ray: &Ray, world: &dyn Hittable, depth: i64) -> Rgb {
     }
 
     if let Some(hit_rec) = world.hit(ray, 0.001, f64::INFINITY) {
-        let target = hit_rec.p + hit_rec.normal + random_vector_in_unit_sphere();
-        let recursion = ray_colour(
-            &Ray {
-                origin: hit_rec.p,
-                direction: target - hit_rec.p,
-            },
-            world,
-            depth - 1,
-        );
-
-        return 0.5 * recursion;
+        if let Some((attenuation, scattered_ray)) = hit_rec.material.scatter(ray, &hit_rec) {
+            return attenuation * ray_colour(&scattered_ray, world, depth-1);
+        }
+        return Rgb::new(0.0, 0.0, 0.0);
     }
 
     let t = 0.5 * (ray.direction.normalize().y + 1.0);
@@ -233,6 +256,10 @@ fn random_vector_in_unit_sphere() -> Vector {
     }
 }
 
+fn random_unit_vector() -> Vector {
+    random_vector_in_unit_sphere().normalize()
+}
+
 fn main() {
     // World
 
@@ -240,10 +267,12 @@ fn main() {
         Box::new(Sphere {
             center: Point::new(0.0, 0.0, -1.0),
             radius: 0.5,
+            material: Arc::new(Lambertian { albedo: Rgb::new(1.0, 0.0, 0.0) }),
         }),
         Box::new(Sphere {
             center: Point::new(0.0, -100.5, -1.0),
             radius: 100.0,
+            material: Arc::new(Lambertian { albedo: Rgb::new(0.0, 1.0, 0.0) }),
         }),
     ]);
 

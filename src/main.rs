@@ -96,13 +96,23 @@ trait Material: Sync + Send {
     fn scatter(&self, ray: &Ray, hit_rec: &HitRecord) -> Option<(Rgb, Ray)>;
 }
 
+fn near_zero(vec: Vector) -> bool {
+    const S: f64 = 1e-8;
+
+    vec.x.abs() < S && vec.y.abs() < S && vec.z.abs() < S
+}
+
 struct Lambertian {
     albedo: Rgb,
 }
 
 impl Material for Lambertian {
     fn scatter(&self, _ray: &Ray, hit_rec: &HitRecord) -> Option<(Rgb, Ray)> {
-        let direction = hit_rec.normal + random_unit_vector();
+        let mut direction = hit_rec.normal + random_unit_vector();
+        if near_zero(direction) {
+            direction = hit_rec.normal;
+        }
+
         let scattered = Ray{origin: hit_rec.p, direction};
         let attenuation = self.albedo.clone();
 

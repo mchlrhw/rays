@@ -4,6 +4,7 @@ use indicatif::ProgressBar;
 use na::{Point3, Vector3};
 use nalgebra as na;
 use rand::{thread_rng, Rng};
+use rayon::prelude::*;
 
 const ASPECT_RATIO: f64 = 16.0 / 9.0;
 const IMAGE_WIDTH: u64 = 400;
@@ -80,7 +81,7 @@ struct HitRecord {
     front_face: bool,
 }
 
-trait Hittable {
+trait Hittable: Sync {
     fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord>;
 }
 
@@ -197,8 +198,6 @@ impl Camera {
 }
 
 fn main() {
-    let mut rng = thread_rng();
-
     // World
 
     let world = HitList(vec![
@@ -224,14 +223,20 @@ fn main() {
     for j in (0..IMAGE_HEIGHT).rev() {
         progress.inc(1);
         for i in 0..IMAGE_WIDTH {
-            let mut pixel_colour = Rgb::new(0.0, 0.0, 0.0);
-            for _s in 0..SAMPLES_PER_PIXEL {
-                let u = (i as f64 + rng.gen_range(0.0..1.0)) / (IMAGE_WIDTH - 1) as f64;
-                let v = (j as f64 + rng.gen_range(0.0..1.0)) / (IMAGE_HEIGHT - 1) as f64;
+            let pixel_colour = (0..SAMPLES_PER_PIXEL)
+                .into_par_iter()
+                .map(|_s| {
+                    let mut rng = thread_rng();
 
-                let ray = camera.get_ray(u, v);
-                pixel_colour += ray_colour(&ray, &world);
-            }
+                    let u = (i as f64 + rng.gen_range(0.0..1.0)) / (IMAGE_WIDTH - 1) as f64;
+                    let v = (j as f64 + rng.gen_range(0.0..1.0)) / (IMAGE_HEIGHT - 1) as f64;
+
+                    let ray = camera.get_ray(u, v);
+
+                    ray_colour(&ray, &world)
+                })
+                .reduce(|| Rgb::new(0.0, 0.0, 0.0), |pc, rc| pc + rc);
+
             println!("{}", pixel_colour);
         }
     }

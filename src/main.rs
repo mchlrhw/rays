@@ -30,9 +30,9 @@ impl fmt::Display for Rgb {
         let mut b = self.0.z;
 
         let scale = 1.0 / SAMPLES_PER_PIXEL as f64;
-        r *= scale;
-        g *= scale;
-        b *= scale;
+        r = (r * scale).sqrt();
+        g = (g * scale).sqrt();
+        b = (b * scale).sqrt();
 
         let ir = (256.0 * r.clamp(0.0, 0.999)) as u64;
         let ig = (256.0 * g.clamp(0.0, 0.999)) as u64;
@@ -154,7 +154,7 @@ fn ray_colour(ray: &Ray, world: &dyn Hittable, depth: i64) -> Rgb {
         return Rgb::new(0.0, 0.0, 0.0);
     }
 
-    if let Some(hit_rec) = world.hit(ray, 0.0, f64::INFINITY) {
+    if let Some(hit_rec) = world.hit(ray, 0.001, f64::INFINITY) {
         let target = hit_rec.p + hit_rec.normal + random_vector_in_unit_sphere();
         let recursion = ray_colour(
             &Ray {

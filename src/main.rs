@@ -113,10 +113,39 @@ impl Material for Lambertian {
             direction = hit_rec.normal;
         }
 
-        let scattered = Ray{origin: hit_rec.p, direction};
+        let scattered = Ray {
+            origin: hit_rec.p,
+            direction,
+        };
         let attenuation = self.albedo.clone();
 
         Some((attenuation, scattered))
+    }
+}
+
+fn reflect(v: Vector, n: Vector) -> Vector {
+    v - (2.0 * v.dot(&n) * n)
+}
+
+struct Metal {
+    albedo: Rgb,
+}
+
+impl Material for Metal {
+    fn scatter(&self, ray: &Ray, hit_rec: &HitRecord) -> Option<(Rgb, Ray)> {
+        let reflected = reflect(ray.direction.normalize(), hit_rec.normal);
+
+        let scattered = Ray {
+            origin: hit_rec.p,
+            direction: reflected,
+        };
+        let attenuation = self.albedo.clone();
+
+        if scattered.direction.dot(&hit_rec.normal) > 0.0 {
+            Some((attenuation, scattered))
+        } else {
+            None
+        }
     }
 }
 
@@ -196,7 +225,7 @@ fn ray_colour(ray: &Ray, world: &dyn Hittable, depth: i64) -> Rgb {
 
     if let Some(hit_rec) = world.hit(ray, 0.001, f64::INFINITY) {
         if let Some((attenuation, scattered_ray)) = hit_rec.material.scatter(ray, &hit_rec) {
-            return attenuation * ray_colour(&scattered_ray, world, depth-1);
+            return attenuation * ray_colour(&scattered_ray, world, depth - 1);
         }
         return Rgb::new(0.0, 0.0, 0.0);
     }
@@ -273,16 +302,39 @@ fn random_unit_vector() -> Vector {
 fn main() {
     // World
 
+    let material_ground = Arc::new(Lambertian {
+        albedo: Rgb::new(0.8, 0.8, 0.0),
+    });
+    let material_center = Arc::new(Lambertian {
+        albedo: Rgb::new(0.7, 0.3, 0.3),
+    });
+    let material_left = Arc::new(Metal {
+        albedo: Rgb::new(0.8, 0.8, 0.8),
+    });
+    let material_right = Arc::new(Metal {
+        albedo: Rgb::new(0.8, 0.6, 0.2),
+    });
+
     let world = HitList(vec![
-        Box::new(Sphere {
-            center: Point::new(0.0, 0.0, -1.0),
-            radius: 0.5,
-            material: Arc::new(Lambertian { albedo: Rgb::new(1.0, 0.0, 0.0) }),
-        }),
         Box::new(Sphere {
             center: Point::new(0.0, -100.5, -1.0),
             radius: 100.0,
-            material: Arc::new(Lambertian { albedo: Rgb::new(0.0, 1.0, 0.0) }),
+            material: material_ground,
+        }),
+        Box::new(Sphere {
+            center: Point::new(0.0, 0.0, -1.0),
+            radius: 0.5,
+            material: material_center,
+        }),
+        Box::new(Sphere {
+            center: Point::new(-1.0, 0.0, -1.0),
+            radius: 0.5,
+            material: material_left,
+        }),
+        Box::new(Sphere {
+            center: Point::new(1.0, 0.0, -1.0),
+            radius: 0.5,
+            material: material_right,
         }),
     ]);
 

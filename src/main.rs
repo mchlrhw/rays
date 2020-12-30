@@ -129,6 +129,7 @@ fn reflect(v: Vector, n: Vector) -> Vector {
 
 struct Metal {
     albedo: Rgb,
+    fuzz: f64,
 }
 
 impl Material for Metal {
@@ -137,7 +138,7 @@ impl Material for Metal {
 
         let scattered = Ray {
             origin: hit_rec.p,
-            direction: reflected,
+            direction: reflected + (self.fuzz * random_unit_vector()),
         };
         let attenuation = self.albedo.clone();
 
@@ -310,9 +311,11 @@ fn main() {
     });
     let material_left = Arc::new(Metal {
         albedo: Rgb::new(0.8, 0.8, 0.8),
+        fuzz: 0.3,
     });
     let material_right = Arc::new(Metal {
         albedo: Rgb::new(0.8, 0.6, 0.2),
+        fuzz: 1.0,
     });
 
     let world = HitList(vec![

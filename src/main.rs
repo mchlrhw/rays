@@ -6,10 +6,10 @@ use nalgebra as na;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 
-const ASPECT_RATIO: f64 = 16.0 / 9.0;
-const IMAGE_WIDTH: u64 = 400;
+const ASPECT_RATIO: f64 = 3.0 / 2.0;
+const IMAGE_WIDTH: u64 = 1200;
 const IMAGE_HEIGHT: u64 = (IMAGE_WIDTH as f64 / ASPECT_RATIO) as u64;
-const SAMPLES_PER_PIXEL: u64 = 100;
+const SAMPLES_PER_PIXEL: u64 = 500;
 const MAX_DEPTH: i64 = 50;
 
 type Point = Point3<f64>;
@@ -21,6 +21,20 @@ struct Rgb(Vector3<f64>);
 impl Rgb {
     fn new(r: f64, g: f64, b: f64) -> Self {
         Self(Vector3::new(r, g, b))
+    }
+
+    fn random_in_range(min: f64, max: f64) -> Self {
+        let mut rng = thread_rng();
+
+        Self::new(
+            rng.gen_range(min..max),
+            rng.gen_range(min..max),
+            rng.gen_range(min..max),
+        )
+    }
+
+    fn random() -> Self {
+        Self::random_in_range(0.0, 1.0)
     }
 }
 
@@ -372,53 +386,95 @@ fn random_unit_vector() -> Vector {
 fn main() {
     // World
 
+    let mut hit_list: Vec<Box<dyn Hittable>> = vec![];
+
     let material_ground = Arc::new(Lambertian {
-        albedo: Rgb::new(0.8, 0.8, 0.0),
+        albedo: Rgb::new(0.5, 0.5, 0.5),
     });
-    let material_center = Arc::new(Lambertian {
-        albedo: Rgb::new(0.1, 0.2, 0.5),
+    hit_list.push(Box::new(Sphere {
+        center: Point::new(0.0, -1000.0, 0.0),
+        radius: 1000.0,
+        material: material_ground,
+    }));
+
+    for a in -11..11 {
+        for b in -11..11 {
+            let a = a as f64;
+            let b = b as f64;
+
+            let mut rng = thread_rng();
+
+            let choose_mat = rng.gen_range(0.0..1.0);
+            let center = Point::new(
+                a + (0.9 * rng.gen_range(0.0..1.0)),
+                0.2,
+                b + (0.9 * rng.gen_range(0.0..1.0)),
+            );
+
+            if (center - Point::new(4.0, 0.2, 0.0)).magnitude() > 0.9 {
+                let material: Arc<dyn Material> = if choose_mat < 0.8 {
+                    // diffuse
+                    let albedo = Rgb::random() * Rgb::random();
+                    Arc::new(Lambertian { albedo })
+                } else if choose_mat < 0.95 {
+                    // metal
+                    let albedo = Rgb::random_in_range(0.5, 1.0);
+                    let fuzz = rng.gen_range(0.0..0.5);
+                    Arc::new(Metal { albedo, fuzz })
+                } else {
+                    // glass
+                    Arc::new(Dielectric { ir: 1.5 })
+                };
+
+                hit_list.push(Box::new(Sphere {
+                    center,
+                    radius: 0.2,
+                    material,
+                }));
+            }
+        }
+    }
+
+    let material1 = Arc::new(Dielectric { ir: 1.5 });
+    hit_list.push(Box::new(Sphere {
+        center: Point::new(0.0, 1.0, 0.0),
+        radius: 1.0,
+        material: material1,
+    }));
+
+    let material2 = Arc::new(Lambertian {
+        albedo: Rgb::new(0.4, 0.2, 0.1),
     });
-    let material_left = Arc::new(Dielectric { ir: 1.5 });
-    let material_right = Arc::new(Metal {
-        albedo: Rgb::new(0.8, 0.6, 0.2),
+    hit_list.push(Box::new(Sphere {
+        center: Point::new(-4.0, 1.0, 0.0),
+        radius: 1.0,
+        material: material2,
+    }));
+
+    let material3 = Arc::new(Metal {
+        albedo: Rgb::new(0.7, 0.6, 0.5),
         fuzz: 0.0,
     });
+    hit_list.push(Box::new(Sphere {
+        center: Point::new(4.0, 1.0, 0.0),
+        radius: 1.0,
+        material: material3,
+    }));
 
-    let world = HitList(vec![
-        Box::new(Sphere {
-            center: Point::new(0.0, -100.5, -1.0),
-            radius: 100.0,
-            material: material_ground,
-        }),
-        Box::new(Sphere {
-            center: Point::new(0.0, 0.0, -1.0),
-            radius: 0.5,
-            material: material_center,
-        }),
-        Box::new(Sphere {
-            center: Point::new(-1.0, 0.0, -1.0),
-            radius: -0.45,
-            material: material_left,
-        }),
-        Box::new(Sphere {
-            center: Point::new(1.0, 0.0, -1.0),
-            radius: 0.5,
-            material: material_right,
-        }),
-    ]);
+    let world = HitList(hit_list);
 
     // Camera
 
-    let lookfrom = Point::new(3.0, 3.0, 2.0);
-    let lookat = Point::new(0.0, 0.0, -1.0);
+    let lookfrom = Point::new(13.0, 2.0, 3.0);
+    let lookat = Point::new(0.0, 0.0, 0.0);
     let camera = Camera::new(
         lookfrom,
         lookat,
         Vector::new(0.0, 1.0, 0.0),
         20.0,
         ASPECT_RATIO,
-        2.0,
-        (lookfrom - lookat).magnitude(),
+        0.1,
+        10.0,
     );
 
     // Render

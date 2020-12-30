@@ -150,6 +150,35 @@ impl Material for Metal {
     }
 }
 
+fn refract(uv: Vector, n: Vector, etai_over_etat: f64) -> Vector {
+    let cos_theta = (-uv).dot(&n).min(1.0);
+    let r_out_perp = etai_over_etat * (uv + (cos_theta * n));
+    let r_out_parallel = -(1.0 - r_out_perp.magnitude_squared()).abs().sqrt() * n;
+
+    r_out_perp + r_out_parallel
+}
+
+struct Dielectric {
+    ir: f64,
+}
+
+impl Material for Dielectric {
+    fn scatter(&self, ray: &Ray, hit_rec: &HitRecord) -> Option<(Rgb, Ray)> {
+        let attenuation = Rgb::new(1.0, 1.0, 1.0);
+        let refraction_ratio = if hit_rec.front_face {
+            1.0 / self.ir
+        } else {
+            self.ir
+        };
+
+        let unit_direction = ray.direction.normalize();
+        let refracted = refract(unit_direction, hit_rec.normal, refraction_ratio);
+        let scattered = Ray { origin: hit_rec.p, direction: refracted };
+
+        Some((attenuation, scattered))
+    }
+}
+
 trait Hittable: Sync {
     fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord>;
 }
@@ -306,12 +335,11 @@ fn main() {
     let material_ground = Arc::new(Lambertian {
         albedo: Rgb::new(0.8, 0.8, 0.0),
     });
-    let material_center = Arc::new(Lambertian {
-        albedo: Rgb::new(0.7, 0.3, 0.3),
+    let material_center = Arc::new(Dielectric {
+        ir: 1.5,
     });
-    let material_left = Arc::new(Metal {
-        albedo: Rgb::new(0.8, 0.8, 0.8),
-        fuzz: 0.3,
+    let material_left = Arc::new(Dielectric {
+        ir: 1.5,
     });
     let material_right = Arc::new(Metal {
         albedo: Rgb::new(0.8, 0.6, 0.2),

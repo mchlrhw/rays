@@ -172,8 +172,18 @@ impl Material for Dielectric {
         };
 
         let unit_direction = ray.direction.normalize();
-        let refracted = refract(unit_direction, hit_rec.normal, refraction_ratio);
-        let scattered = Ray { origin: hit_rec.p, direction: refracted };
+        let cos_theta = (-unit_direction).dot(&hit_rec.normal).min(1.0);
+        let sin_theta = (1.0 - cos_theta.powi(2)).sqrt();
+
+        let cannot_refract = refraction_ratio * sin_theta > 1.0;
+
+        let direction = if cannot_refract {
+            reflect(unit_direction, hit_rec.normal)
+        } else {
+            refract(unit_direction, hit_rec.normal, refraction_ratio)
+        };
+
+        let scattered = Ray { origin: hit_rec.p, direction };
 
         Some((attenuation, scattered))
     }
@@ -335,15 +345,15 @@ fn main() {
     let material_ground = Arc::new(Lambertian {
         albedo: Rgb::new(0.8, 0.8, 0.0),
     });
-    let material_center = Arc::new(Dielectric {
-        ir: 1.5,
+    let material_center = Arc::new(Lambertian {
+        albedo: Rgb::new(0.1, 0.2, 0.5),
     });
     let material_left = Arc::new(Dielectric {
         ir: 1.5,
     });
     let material_right = Arc::new(Metal {
         albedo: Rgb::new(0.8, 0.6, 0.2),
-        fuzz: 1.0,
+        fuzz: 0.0,
     });
 
     let world = HitList(vec![

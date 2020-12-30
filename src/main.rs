@@ -290,10 +290,21 @@ struct Camera {
     lower_left_corner: Point,
     horizontal: Vector,
     vertical: Vector,
+    u: Vector,
+    v: Vector,
+    lens_radius: f64,
 }
 
 impl Camera {
-    fn new(lookfrom: Point, lookat: Point, vup: Vector, vfov: f64, aspect_ratio: f64) -> Self {
+    fn new(
+        lookfrom: Point,
+        lookat: Point,
+        vup: Vector,
+        vfov: f64,
+        aspect_ratio: f64,
+        aperture: f64,
+        focus_dist: f64,
+    ) -> Self {
         let theta = vfov * ((2.0 * PI) / 360.0);
         let h = (theta / 2.0).tan();
         let viewport_height = 2.0 * h;
@@ -304,26 +315,31 @@ impl Camera {
         let v = w.cross(&u);
 
         let origin = lookfrom;
-        let horizontal = viewport_width * u;
-        let vertical = viewport_height * v;
-        let lower_left_corner = origin
-            - (horizontal / 2.0)
-            - (vertical / 2.0)
-            - w;
+        let horizontal = focus_dist * viewport_width * u;
+        let vertical = focus_dist * viewport_height * v;
+        let lower_left_corner = origin - (horizontal / 2.0) - (vertical / 2.0) - (focus_dist * w);
+        let lens_radius = aperture / 2.0;
 
         Self {
             origin,
             horizontal,
             vertical,
             lower_left_corner,
+            u,
+            v,
+            lens_radius,
         }
     }
 
-    fn get_ray(&self, u: f64, v: f64) -> Ray {
+    fn get_ray(&self, s: f64, t: f64) -> Ray {
+        let rd = self.lens_radius * random_unit_vector();
+        let offset = (self.u * rd.x) + (self.v * rd.y);
+
         Ray {
-            origin: self.origin,
-            direction: self.lower_left_corner + (u * self.horizontal) + (v * self.vertical)
-                - self.origin,
+            origin: self.origin + offset,
+            direction: self.lower_left_corner + (s * self.horizontal) + (t * self.vertical)
+                - self.origin
+                - offset,
         }
     }
 }
@@ -356,10 +372,17 @@ fn random_unit_vector() -> Vector {
 fn main() {
     // World
 
-    let material_ground = Arc::new(Lambertian { albedo: Rgb::new(0.8, 0.8, 0.0) });
-    let material_center = Arc::new(Lambertian { albedo: Rgb::new(0.1, 0.2, 0.5) });
+    let material_ground = Arc::new(Lambertian {
+        albedo: Rgb::new(0.8, 0.8, 0.0),
+    });
+    let material_center = Arc::new(Lambertian {
+        albedo: Rgb::new(0.1, 0.2, 0.5),
+    });
     let material_left = Arc::new(Dielectric { ir: 1.5 });
-    let material_right = Arc::new(Metal { albedo: Rgb::new(0.8, 0.6, 0.2), fuzz: 0.0 });
+    let material_right = Arc::new(Metal {
+        albedo: Rgb::new(0.8, 0.6, 0.2),
+        fuzz: 0.0,
+    });
 
     let world = HitList(vec![
         Box::new(Sphere {
@@ -386,12 +409,16 @@ fn main() {
 
     // Camera
 
+    let lookfrom = Point::new(3.0, 3.0, 2.0);
+    let lookat = Point::new(0.0, 0.0, -1.0);
     let camera = Camera::new(
-        Point::new(-2.0, 2.0, 1.0),
-        Point::new(0.0, 0.0, -1.0),
+        lookfrom,
+        lookat,
         Vector::new(0.0, 1.0, 0.0),
         20.0,
         ASPECT_RATIO,
+        2.0,
+        (lookfrom - lookat).magnitude(),
     );
 
     // Render

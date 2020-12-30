@@ -1,4 +1,4 @@
-use std::{fmt, sync::Arc};
+use std::{f64::consts::PI, fmt, sync::Arc};
 
 use indicatif::ProgressBar;
 use na::{Point3, Vector3};
@@ -293,15 +293,17 @@ struct Camera {
 }
 
 impl Camera {
-    const ASPECT_RATIO: f64 = 16.0 / 9.0;
-    const VIEWPORT_HEIGHT: f64 = 2.0;
-    const VIEWPORT_WIDTH: f64 = Self::ASPECT_RATIO * Self::VIEWPORT_HEIGHT;
     const FOCAL_LENGTH: f64 = 1.0;
 
-    fn new() -> Self {
+    fn new(vfov: f64, aspect_ratio: f64) -> Self {
+        let theta = vfov * ((2.0 * PI) / 360.0);
+        let h = (theta / 2.0).tan();
+        let viewport_height = 2.0 * h;
+        let viewport_width = aspect_ratio * viewport_height;
+
         let origin = Point::new(0.0, 0.0, 0.0);
-        let horizontal = Vector::new(Self::VIEWPORT_WIDTH, 0.0, 0.0);
-        let vertical = Vector::new(0.0, Self::VIEWPORT_HEIGHT, 0.0);
+        let horizontal = Vector::new(viewport_width, 0.0, 0.0);
+        let vertical = Vector::new(0.0, viewport_height, 0.0);
         let lower_left_corner = origin
             - (horizontal / 2.0)
             - (vertical / 2.0)
@@ -352,44 +354,27 @@ fn random_unit_vector() -> Vector {
 fn main() {
     // World
 
-    let material_ground = Arc::new(Lambertian {
-        albedo: Rgb::new(0.8, 0.8, 0.0),
-    });
-    let material_center = Arc::new(Lambertian {
-        albedo: Rgb::new(0.1, 0.2, 0.5),
-    });
-    let material_left = Arc::new(Dielectric { ir: 1.5 });
-    let material_right = Arc::new(Metal {
-        albedo: Rgb::new(0.8, 0.6, 0.2),
-        fuzz: 0.0,
-    });
+    let r = (PI / 4.0).cos();
+
+    let material_left = Arc::new(Lambertian { albedo: Rgb::new(0.0, 0.0, 1.0) });
+    let material_right = Arc::new(Lambertian { albedo: Rgb::new(1.0, 0.0, 0.0) });
 
     let world = HitList(vec![
         Box::new(Sphere {
-            center: Point::new(0.0, -100.5, -1.0),
-            radius: 100.0,
-            material: material_ground,
-        }),
-        Box::new(Sphere {
-            center: Point::new(0.0, 0.0, -1.0),
-            radius: 0.5,
-            material: material_center,
-        }),
-        Box::new(Sphere {
-            center: Point::new(-1.0, 0.0, -1.0),
-            radius: 0.5,
+            center: Point::new(-r, 0.0, -1.0),
+            radius: r,
             material: material_left,
         }),
         Box::new(Sphere {
-            center: Point::new(1.0, 0.0, -1.0),
-            radius: 0.5,
+            center: Point::new(r, 0.0, -1.0),
+            radius: r,
             material: material_right,
         }),
     ]);
 
     // Camera
 
-    let camera = Camera::new();
+    let camera = Camera::new(90.0, ASPECT_RATIO);
 
     // Render
 

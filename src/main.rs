@@ -158,6 +158,12 @@ fn refract(uv: Vector, n: Vector, etai_over_etat: f64) -> Vector {
     r_out_perp + r_out_parallel
 }
 
+fn reflectance(cosine: f64, ref_idx: f64) -> f64 {
+    let r0 = ((1.0 - ref_idx) / (1.0 + ref_idx)).powi(2);
+
+    r0 + ((1.0 - r0) * (1.0 - cosine).powi(5))
+}
+
 struct Dielectric {
     ir: f64,
 }
@@ -175,7 +181,8 @@ impl Material for Dielectric {
         let cos_theta = (-unit_direction).dot(&hit_rec.normal).min(1.0);
         let sin_theta = (1.0 - cos_theta.powi(2)).sqrt();
 
-        let cannot_refract = refraction_ratio * sin_theta > 1.0;
+        let cannot_refract = refraction_ratio * sin_theta > 1.0
+            || reflectance(cos_theta, refraction_ratio) > thread_rng().gen_range(0.0..1.0);
 
         let direction = if cannot_refract {
             reflect(unit_direction, hit_rec.normal)
@@ -183,7 +190,10 @@ impl Material for Dielectric {
             refract(unit_direction, hit_rec.normal, refraction_ratio)
         };
 
-        let scattered = Ray { origin: hit_rec.p, direction };
+        let scattered = Ray {
+            origin: hit_rec.p,
+            direction,
+        };
 
         Some((attenuation, scattered))
     }
@@ -348,9 +358,7 @@ fn main() {
     let material_center = Arc::new(Lambertian {
         albedo: Rgb::new(0.1, 0.2, 0.5),
     });
-    let material_left = Arc::new(Dielectric {
-        ir: 1.5,
-    });
+    let material_left = Arc::new(Dielectric { ir: 1.5 });
     let material_right = Arc::new(Metal {
         albedo: Rgb::new(0.8, 0.6, 0.2),
         fuzz: 0.0,

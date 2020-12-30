@@ -390,7 +390,7 @@ fn main() {
         Point::new(-2.0, 2.0, 1.0),
         Point::new(0.0, 0.0, -1.0),
         Vector::new(0.0, 1.0, 0.0),
-        90.0,
+        20.0,
         ASPECT_RATIO,
     );
 

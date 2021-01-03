@@ -1,10 +1,24 @@
-use std::{f64::consts::PI, fmt, sync::Arc};
+mod camera;
+mod hittable;
+mod material;
+mod ray;
+mod rgb;
+
+use std::sync::Arc;
 
 use indicatif::ProgressBar;
 use na::{Point3, Vector3};
 use nalgebra as na;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
+
+use crate::{
+    camera::Camera,
+    hittable::{HitList, Hittable, Sphere},
+    material::{Dielectric, Lambertian, Material, Metal},
+    ray::Ray,
+    rgb::Rgb,
+};
 
 const ASPECT_RATIO: f64 = 3.0 / 2.0;
 const IMAGE_WIDTH: u64 = 1200;
@@ -14,273 +28,6 @@ const MAX_DEPTH: i64 = 50;
 
 type Point = Point3<f64>;
 type Vector = Vector3<f64>;
-
-#[derive(Clone)]
-struct Rgb(Vector3<f64>);
-
-impl Rgb {
-    fn new(r: f64, g: f64, b: f64) -> Self {
-        Self(Vector3::new(r, g, b))
-    }
-
-    fn random_in_range(min: f64, max: f64) -> Self {
-        let mut rng = thread_rng();
-
-        Self::new(
-            rng.gen_range(min..max),
-            rng.gen_range(min..max),
-            rng.gen_range(min..max),
-        )
-    }
-
-    fn random() -> Self {
-        Self::random_in_range(0.0, 1.0)
-    }
-}
-
-impl fmt::Display for Rgb {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut r = self.0.x;
-        let mut g = self.0.y;
-        let mut b = self.0.z;
-
-        let scale = 1.0 / SAMPLES_PER_PIXEL as f64;
-        r = (r * scale).sqrt();
-        g = (g * scale).sqrt();
-        b = (b * scale).sqrt();
-
-        let ir = (256.0 * r.clamp(0.0, 0.999)) as u64;
-        let ig = (256.0 * g.clamp(0.0, 0.999)) as u64;
-        let ib = (256.0 * b.clamp(0.0, 0.999)) as u64;
-
-        write!(f, "{} {} {}", ir, ig, ib)
-    }
-}
-
-impl std::ops::Mul<Rgb> for f64 {
-    type Output = Rgb;
-
-    fn mul(self, other: Rgb) -> Self::Output {
-        Rgb(self * other.0)
-    }
-}
-
-impl std::ops::Mul<Rgb> for Rgb {
-    type Output = Rgb;
-
-    fn mul(self, other: Rgb) -> Self::Output {
-        Rgb(self.0.component_mul(&other.0))
-    }
-}
-
-impl std::ops::Add<Rgb> for Rgb {
-    type Output = Rgb;
-
-    fn add(self, other: Rgb) -> Self::Output {
-        Rgb(self.0 + other.0)
-    }
-}
-
-impl std::ops::AddAssign for Rgb {
-    fn add_assign(&mut self, other: Self) {
-        *self = Self(self.0 + other.0);
-    }
-}
-
-struct Ray {
-    origin: Point,
-    direction: Vector,
-}
-
-impl Ray {
-    fn at(&self, t: f64) -> Point {
-        self.origin + (t * self.direction)
-    }
-}
-
-struct HitRecord {
-    p: Point,
-    normal: Vector,
-    material: Arc<dyn Material>,
-    t: f64,
-    front_face: bool,
-}
-
-trait Material: Sync + Send {
-    fn scatter(&self, ray: &Ray, hit_rec: &HitRecord) -> Option<(Rgb, Ray)>;
-}
-
-fn near_zero(vec: Vector) -> bool {
-    const S: f64 = 1e-8;
-
-    vec.x.abs() < S && vec.y.abs() < S && vec.z.abs() < S
-}
-
-struct Lambertian {
-    albedo: Rgb,
-}
-
-impl Material for Lambertian {
-    fn scatter(&self, _ray: &Ray, hit_rec: &HitRecord) -> Option<(Rgb, Ray)> {
-        let mut direction = hit_rec.normal + random_unit_vector();
-        if near_zero(direction) {
-            direction = hit_rec.normal;
-        }
-
-        let scattered = Ray {
-            origin: hit_rec.p,
-            direction,
-        };
-        let attenuation = self.albedo.clone();
-
-        Some((attenuation, scattered))
-    }
-}
-
-fn reflect(v: Vector, n: Vector) -> Vector {
-    v - (2.0 * v.dot(&n) * n)
-}
-
-struct Metal {
-    albedo: Rgb,
-    fuzz: f64,
-}
-
-impl Material for Metal {
-    fn scatter(&self, ray: &Ray, hit_rec: &HitRecord) -> Option<(Rgb, Ray)> {
-        let reflected = reflect(ray.direction.normalize(), hit_rec.normal);
-
-        let scattered = Ray {
-            origin: hit_rec.p,
-            direction: reflected + (self.fuzz * random_unit_vector()),
-        };
-        let attenuation = self.albedo.clone();
-
-        if scattered.direction.dot(&hit_rec.normal) > 0.0 {
-            Some((attenuation, scattered))
-        } else {
-            None
-        }
-    }
-}
-
-fn refract(uv: Vector, n: Vector, etai_over_etat: f64) -> Vector {
-    let cos_theta = (-uv).dot(&n).min(1.0);
-    let r_out_perp = etai_over_etat * (uv + (cos_theta * n));
-    let r_out_parallel = -(1.0 - r_out_perp.magnitude_squared()).abs().sqrt() * n;
-
-    r_out_perp + r_out_parallel
-}
-
-fn reflectance(cosine: f64, ref_idx: f64) -> f64 {
-    let r0 = ((1.0 - ref_idx) / (1.0 + ref_idx)).powi(2);
-
-    r0 + ((1.0 - r0) * (1.0 - cosine).powi(5))
-}
-
-struct Dielectric {
-    ir: f64,
-}
-
-impl Material for Dielectric {
-    fn scatter(&self, ray: &Ray, hit_rec: &HitRecord) -> Option<(Rgb, Ray)> {
-        let attenuation = Rgb::new(1.0, 1.0, 1.0);
-        let refraction_ratio = if hit_rec.front_face {
-            1.0 / self.ir
-        } else {
-            self.ir
-        };
-
-        let unit_direction = ray.direction.normalize();
-        let cos_theta = (-unit_direction).dot(&hit_rec.normal).min(1.0);
-        let sin_theta = (1.0 - cos_theta.powi(2)).sqrt();
-
-        let cannot_refract = refraction_ratio * sin_theta > 1.0
-            || reflectance(cos_theta, refraction_ratio) > thread_rng().gen_range(0.0..1.0);
-
-        let direction = if cannot_refract {
-            reflect(unit_direction, hit_rec.normal)
-        } else {
-            refract(unit_direction, hit_rec.normal, refraction_ratio)
-        };
-
-        let scattered = Ray {
-            origin: hit_rec.p,
-            direction,
-        };
-
-        Some((attenuation, scattered))
-    }
-}
-
-trait Hittable: Sync {
-    fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord>;
-}
-
-struct HitList(Vec<Box<dyn Hittable>>);
-
-impl Hittable for HitList {
-    fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord> {
-        let mut maybe_hit = None;
-        let mut closest_so_far = t_max;
-
-        for hittable in &self.0 {
-            if let Some(hit_rec) = hittable.hit(ray, t_min, closest_so_far) {
-                closest_so_far = hit_rec.t;
-                maybe_hit = Some(hit_rec);
-            }
-        }
-
-        maybe_hit
-    }
-}
-
-struct Sphere {
-    center: Point,
-    radius: f64,
-    material: Arc<dyn Material>,
-}
-
-impl Hittable for Sphere {
-    fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord> {
-        let oc = ray.origin - self.center;
-        let a = ray.direction.magnitude_squared();
-        let half_b = oc.dot(&ray.direction);
-        let c = oc.magnitude_squared() - self.radius.powi(2);
-
-        let discriminant = half_b.powi(2) - (a * c);
-        if discriminant < 0.0 {
-            return None;
-        }
-
-        let sqrtd = discriminant.sqrt();
-        let mut root = (-half_b - sqrtd) / a;
-        if root < t_min || t_max < root {
-            root = (-half_b + sqrtd) / a;
-            if root < t_min || t_max < root {
-                return None;
-            }
-        }
-
-        let t = root;
-        let p = ray.at(t);
-        let outward_normal = (p - self.center) / self.radius;
-        let front_face = ray.direction.dot(&outward_normal) < 0.0;
-        let normal = if front_face {
-            outward_normal
-        } else {
-            -outward_normal
-        };
-
-        Some(HitRecord {
-            t,
-            normal,
-            material: self.material.clone(),
-            p,
-            front_face,
-        })
-    }
-}
 
 fn ray_colour(ray: &Ray, world: &dyn Hittable, depth: i64) -> Rgb {
     if depth < 0 {
@@ -297,65 +44,6 @@ fn ray_colour(ray: &Ray, world: &dyn Hittable, depth: i64) -> Rgb {
     let t = 0.5 * (ray.direction.normalize().y + 1.0);
 
     ((1.0 - t) * Rgb::new(1.0, 1.0, 1.0)) + (t * Rgb::new(0.5, 0.7, 1.0))
-}
-
-struct Camera {
-    origin: Point,
-    lower_left_corner: Point,
-    horizontal: Vector,
-    vertical: Vector,
-    u: Vector,
-    v: Vector,
-    lens_radius: f64,
-}
-
-impl Camera {
-    fn new(
-        lookfrom: Point,
-        lookat: Point,
-        vup: Vector,
-        vfov: f64,
-        aspect_ratio: f64,
-        aperture: f64,
-        focus_dist: f64,
-    ) -> Self {
-        let theta = vfov * ((2.0 * PI) / 360.0);
-        let h = (theta / 2.0).tan();
-        let viewport_height = 2.0 * h;
-        let viewport_width = aspect_ratio * viewport_height;
-
-        let w = (lookfrom - lookat).normalize();
-        let u = vup.cross(&w).normalize();
-        let v = w.cross(&u);
-
-        let origin = lookfrom;
-        let horizontal = focus_dist * viewport_width * u;
-        let vertical = focus_dist * viewport_height * v;
-        let lower_left_corner = origin - (horizontal / 2.0) - (vertical / 2.0) - (focus_dist * w);
-        let lens_radius = aperture / 2.0;
-
-        Self {
-            origin,
-            horizontal,
-            vertical,
-            lower_left_corner,
-            u,
-            v,
-            lens_radius,
-        }
-    }
-
-    fn get_ray(&self, s: f64, t: f64) -> Ray {
-        let rd = self.lens_radius * random_unit_vector();
-        let offset = (self.u * rd.x) + (self.v * rd.y);
-
-        Ray {
-            origin: self.origin + offset,
-            direction: self.lower_left_corner + (s * self.horizontal) + (t * self.vertical)
-                - self.origin
-                - offset,
-        }
-    }
 }
 
 fn random_vector(min: f64, max: f64) -> Vector {
